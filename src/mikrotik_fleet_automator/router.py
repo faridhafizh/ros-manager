@@ -1,0 +1,217 @@
+"""MikroTik connection adapter: RouterOS API for health, SSH for config export.
+
+RouterOS documentation states `/export` is CLI-only (not available via the
+RouterOS API), so health checks use librouteros over the API while full
+configuration backup is fetched over SSH with Paramiko. Connections are closed
+on every exit path and per-router failures become displayable errors rather
+than silent empty backups.
+"""
+
+from __future__ import annotations
+
+import os
+import ssl
+import socket
+from typing import Optional
+
+import librouteros
+import paramiko
+from librouteros.exceptions import LibRouterosError
+
+from .models import RouterConfig, RouterHealth, RouterInterface
+
+
+class RouterError(Exception):
+    """Raised when a per-router connection or command fails."""
+
+
+def _to_float(value: object) -> Optional[float]:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _to_int(value: object) -> Optional[int]:
+    if value is None or value == "":
+        return None
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _to_bool(value: object) -> Optional[bool]:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.lower() in ("true", "1", "yes", "running")
+    return bool(value)
+
+
+def _row_get(row: dict, key: str) -> object:
+    try:
+        return row.get(key)
+    except AttributeError:
+        return None
+
+
+class RouterClient:
+    """Wraps API (health) and SSH (config export) connections for one router."""
+
+    def __init__(self, config: RouterConfig) -> None:
+        self.config = config
+
+    # -- API: health -----------------------------------------------------
+
+    def _api_password(self) -> str:
+        password = os.environ.get(self.config.password_env, "")
+        if not password.strip():
+            raise RouterError(
+                f"environment variable {self.config.password_env!r} for router "
+                f"{self.config.name!r} is unset or empty"
+            )
+        return password
+
+    def _make_ssl_wrapper(self, host: str):
+        context = ssl.create_default_context(cafile=self.config.api_ca_file)
+
+        def wrap(sock: socket.socket) -> ssl.SSLSocket:
+            return context.wrap_socket(sock, server_hostname=host)
+
+        return wrap
+
+    def _connect_api(self):
+        host = self.config.host
+        port = self.config.api_port
+        kwargs: dict = {
+            "username": self.config.username,
+            "password": self._api_password(),
+            "host": host,
+            "port": port,
+        }
+        if self.config.api_tls:
+            kwargs["ssl_wrapper"] = self._make_ssl_wrapper(host)
+        return librouteros.connect(**kwargs)
+
+    def get_health(self) -> RouterHealth:
+        """Return health snapshot; sensor/metric absence is null, not failure."""
+        api = None
+        try:
+            api = self._connect_api()
+            temperature_c = self._read_temperature(api)
+            cpu_load, mem_total, mem_free = self._read_resource(api)
+            interfaces = self._read_interfaces(api)
+            return RouterHealth(
+                name=self.config.name,
+                host=self.config.host,
+                status="ok",
+                temperature_c=temperature_c,
+                cpu_load_percent=cpu_load,
+                memory_total_bytes=mem_total,
+                memory_free_bytes=mem_free,
+                interfaces=interfaces,
+            )
+        except RouterError:
+            raise
+        except LibRouterosError as exc:
+            raise RouterError(f"API error: {exc}") from exc
+        except OSError as exc:
+            raise RouterError(f"connection error: {exc}") from exc
+        finally:
+            if api is not None:
+                try:
+                    api.close()
+                except Exception:
+                    pass
+
+    def _read_temperature(self, api) -> Optional[float]:
+        try:
+            rows = list(api("/system/health/print"))
+        except LibRouterosError:
+            return None
+        for row in rows:
+            value = _row_get(row, "temperature")
+            if value is None:
+                continue
+            temp = _to_float(value)
+            if temp is not None:
+                return temp
+        return None
+
+    def _read_resource(self, api):
+        rows = list(api("/system/resource/print"))
+        if not rows:
+            return None, None, None
+        row = rows[0]
+        return (
+            _to_float(_row_get(row, "cpu-load")),
+            _to_int(_row_get(row, "total-memory")),
+            _to_int(_row_get(row, "free-memory")),
+        )
+
+    def _read_interfaces(self, api) -> list[RouterInterface]:
+        interfaces: list[RouterInterface] = []
+        try:
+            rows = list(api("/interface/print"))
+        except LibRouterosError:
+            return interfaces
+        for row in rows:
+            interfaces.append(
+                RouterInterface(
+                    name=str(_row_get(row, "name") or ""),
+                    type=_optional_str(_row_get(row, "type")),
+                    running=_to_bool(_row_get(row, "running")),
+                    disabled=_to_bool(_row_get(row, "disabled")),
+                )
+            )
+        return interfaces
+
+    # -- SSH: config export ---------------------------------------------
+
+    def export_config(self) -> str:
+        """Fetch `/export terse` over SSH; never returns empty as success."""
+        client = paramiko.SSHClient()
+        try:
+            known_hosts = os.path.expanduser(self.config.ssh_known_hosts)
+            if os.path.isfile(known_hosts):
+                client.load_host_keys(known_hosts)
+            client.set_missing_host_key_policy(paramiko.RejectPolicy())
+
+            password = self._api_password()
+            client.connect(
+                hostname=self.config.host,
+                port=self.config.ssh_port,
+                username=self.config.username,
+                password=password,
+                look_for_keys=False,
+                allow_agent=False,
+                timeout=10,
+            )
+            _, stdout, stderr = client.exec_command("/export terse")
+            output = stdout.read().decode("utf-8")
+            exit_status = stdout.channel.recv_exit_status()
+            if exit_status != 0:
+                detail = stderr.read().decode("utf-8", errors="replace").strip()
+                raise RouterError(
+                    f"/export terse failed (exit {exit_status}): {detail}"
+                )
+            return output
+        except RouterError:
+            raise
+        except paramiko.SSHException as exc:
+            raise RouterError(f"SSH error: {exc}") from exc
+        except OSError as exc:
+            raise RouterError(f"SSH connection error: {exc}") from exc
+        finally:
+            client.close()
+
+
+def _optional_str(value: object) -> Optional[str]:
+    if value is None or value == "":
+        return None
+    return str(value)
