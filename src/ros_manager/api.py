@@ -10,6 +10,7 @@ from urllib.parse import parse_qs
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from .auth import (
     SESSION_COOKIE,
@@ -94,6 +95,11 @@ def create_app(config_path: str | Path) -> FastAPI:
     prune_history(config.metrics_db)
 
     app = FastAPI(title="ROS Manager")
+    app.mount(
+        "/static",
+        StaticFiles(directory=str(Path(__file__).parent / "static")),
+        name="static",
+    )
     sessions = SessionStore()
     status_cache: Optional[tuple[float, list[RouterResult], str]] = None
 

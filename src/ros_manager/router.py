@@ -265,6 +265,8 @@ class RouterClient:
             )
             _, stdout, stderr = client.exec_command("/export terse")
             output = stdout.read().decode("utf-8")
+            if not output.strip():
+                raise RouterError("SSH export returned empty output")
             exit_status = stdout.channel.recv_exit_status()
             if exit_status != 0:
                 detail = stderr.read().decode("utf-8", errors="replace").strip()

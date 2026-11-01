@@ -118,8 +118,9 @@ def _load_router(raw: Any, index: int) -> RouterConfig:
     password_env = _require_nonempty_str(
         router.get("password_env"), context, "password_env"
     )
-    api_port = _optional_int(router.get("api_port"), context, "api_port", 8729)
     api_tls = _optional_bool(router.get("api_tls"), context, "api_tls", True)
+    default_api_port = 8728 if not api_tls else 8729
+    api_port = _optional_int(router.get("api_port"), context, "api_port", default_api_port)
     api_ca_file = router.get("api_ca_file")
     if api_ca_file is not None:
         api_ca_file = _require_str(api_ca_file, context, "api_ca_file")

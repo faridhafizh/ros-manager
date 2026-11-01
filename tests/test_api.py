@@ -195,6 +195,22 @@ def test_api_history_records_status_points(write_yaml, minimal_yaml, monkeypatch
     assert points[0]["mem_free"] == 100
 
 
+def test_api_serves_static_assets(tmp_path, monkeypatch):
+    monkeypatch.setenv("R1_PASS", "pw")
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text(
+        "routers:\n  - name: r1\n    host: 10.0.0.1\n    username: admin\n    password_env: R1_PASS\n",
+        encoding="utf-8",
+    )
+    client = TestClient(create_app(cfg_path))
+    tailwind = client.get("/static/tailwind.min.js")
+    chart = client.get("/static/chart.umd.min.js")
+    assert tailwind.status_code == 200
+    assert tailwind.headers["content-type"].startswith("application/javascript")
+    assert chart.status_code == 200
+    assert chart.headers["content-type"].startswith("application/javascript")
+
+
 def test_api_history_clamps_hours(write_yaml, minimal_yaml, monkeypatch):
     monkeypatch.setenv("R1_PASS", "pw")
     client = TestClient(create_app(write_yaml(minimal_yaml)))

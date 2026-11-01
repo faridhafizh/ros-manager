@@ -86,7 +86,23 @@ def format_text(results: list[RouterResult], include_backup: bool) -> str:
     for result in results:
         health = result.health
         if health is None:
-            lines.append(f"{result.name} ({result.host}): error - check not performed")
+            if include_backup and result.backup is not None:
+                lines.append(
+                    f"{result.name} ({result.host}): backup: {result.backup.status}"
+                )
+            else:
+                lines.append(
+                    f"{result.name} ({result.host}): error - check not performed"
+                )
+            if include_backup and result.backup is not None:
+                bparts = [f"  backup: {result.backup.status}"]
+                if result.backup.path:
+                    bparts.append(f"path={result.backup.path}")
+                if result.backup.pruned:
+                    bparts.append(f"pruned={result.backup.pruned}")
+                if result.backup.error:
+                    bparts.append(f"error={result.backup.error}")
+                lines.append(" - ".join(bparts))
             continue
         parts = [f"{result.name} ({result.host}): {health.status}"]
         if health.temperature_c is not None:
@@ -161,17 +177,26 @@ def format_csv(results: list[RouterResult], include_backup: bool) -> str:
     for result in results:
         health = result.health
         up, total = interfaces_up_total(health)
+        if health is not None:
+            status = health.status
+            error = health.error
+        elif result.backup is not None:
+            status = result.backup.status
+            error = result.backup.error
+        else:
+            status = "error"
+            error = "check not performed"
         row = {
             "name": result.name,
             "host": result.host,
-            "status": health.status if health else "error",
+            "status": status,
             "temperature_c": health.temperature_c if health else None,
             "cpu_load_percent": health.cpu_load_percent if health else None,
             "memory_total_bytes": health.memory_total_bytes if health else None,
             "memory_free_bytes": health.memory_free_bytes if health else None,
             "interfaces_up": up,
             "interfaces_total": total,
-            "error": health.error if health else "check not performed",
+            "error": error,
         }
         if include_backup:
             backup = result.backup

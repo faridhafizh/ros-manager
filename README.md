@@ -260,6 +260,8 @@ the same flap-aware notifications on every cycle.
 rosm serve --config inventory.yaml --host 127.0.0.1 --port 8000
 ```
 
+The dashboard UI uses a self-hosted Tailwind browser build (`src/ros_manager/static/tailwind.min.js`, served at `/static/tailwind.min.js`) so it works offline and needs no CDN.
+
 The dashboard is built for the whole team: junior support staff get
 colour-coded cards and plain-language notes, while seniors can open the raw
 metrics table for every router.

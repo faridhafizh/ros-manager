@@ -60,7 +60,17 @@ def run_entry(result: RouterResult) -> dict:
             "path": backup.path,
             "pruned": backup.pruned,
         }
-    if entry["status"] == "ok" and backup is not None and backup.status == "error":
+    if result.health is None:
+        # Backup-only runs (e.g. ``rosm backup`` or POST /api/backups) have no
+        # health snapshot, so the router status must follow the backup result
+        # instead of the placeholder "check not performed" error.
+        if backup is None:
+            entry["status"] = "error"
+            entry["error"] = "check not performed"
+        else:
+            entry["status"] = backup.status
+            entry["error"] = backup.error
+    elif entry["status"] == "ok" and backup is not None and backup.status == "error":
         entry["status"] = "error"
         entry["error"] = backup.error or entry["error"]
     return entry
