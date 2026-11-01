@@ -1,4 +1,4 @@
-"""MikroTik connection adapter: RouterOS API for health, SSH for config export.
+"""RouterOS connection adapter: API for health, SSH for config export.
 
 RouterOS documentation states `/export` is CLI-only (not available via the
 RouterOS API), so health checks use librouteros over the API while full
@@ -12,13 +12,14 @@ from __future__ import annotations
 import os
 import ssl
 import socket
+import time
 from typing import Optional
 
 import librouteros
 import paramiko
 from librouteros.exceptions import LibRouterosError
 
-from .models import RouterConfig, RouterHealth, RouterInterface
+from .models import RouterConfig, RouterDoctor, RouterHealth, RouterInterface
 
 
 class RouterError(Exception):
@@ -58,6 +59,35 @@ def _row_get(row: dict, key: str) -> object:
         return row.get(key)
     except AttributeError:
         return None
+
+
+def _health_map(rows) -> dict[str, object]:
+    """Flatten RouterOS health rows into a single name -> value mapping.
+
+    RouterOS v7 may return either ``[{name: ..., value: ...}, ...]`` or a
+    single row with one key per sensor; both shapes are supported.
+    """
+    data: dict[str, object] = {}
+    for row in rows:
+        name = _row_get(row, "name")
+        value = _row_get(row, "value")
+        if name is not None and value is not None:
+            data[str(name)] = value
+            continue
+        try:
+            for key, item in row.items():
+                data[str(key)] = item
+        except AttributeError:
+            continue
+    return data
+
+
+def _first_float(data: dict, *keys: str) -> Optional[float]:
+    for key in keys:
+        value = _to_float(data.get(key))
+        if value is not None:
+            return value
+    return None
 
 
 class RouterClient:
@@ -129,25 +159,66 @@ class RouterClient:
                 except Exception:
                     pass
 
+    def get_doctor(self) -> RouterDoctor:
+        """Return extended diagnostics: version, board, disk, sensors, latency."""
+        api = None
+        try:
+            api = self._connect_api()
+            started = time.perf_counter()
+            list(api("/system/identity/print"))
+            latency_ms = round((time.perf_counter() - started) * 1000, 2)
+            resource = self._read_resource_row(api)
+            health = self._read_health(api)
+            return RouterDoctor(
+                name=self.config.name,
+                host=self.config.host,
+                status="ok",
+                version=_optional_str(_row_get(resource, "version")),
+                uptime=_optional_str(_row_get(resource, "uptime")),
+                board_name=_optional_str(_row_get(resource, "board-name")),
+                architecture=_optional_str(_row_get(resource, "architecture-name")),
+                cpu_count=_to_int(_row_get(resource, "cpu-count")),
+                disk_total_bytes=_to_int(_row_get(resource, "total-hdd-space")),
+                disk_free_bytes=_to_int(_row_get(resource, "free-hdd-space")),
+                temperature_c=_first_float(health, "temperature", "cpu-temperature"),
+                voltage=_first_float(health, "voltage"),
+                fan_speed=_first_float(health, "fan1-speed", "fan-speed", "fan-speed1"),
+                latency_ms=latency_ms,
+            )
+        except RouterError:
+            raise
+        except LibRouterosError as exc:
+            raise RouterError(f"API error: {exc}") from exc
+        except OSError as exc:
+            raise RouterError(f"connection error: {exc}") from exc
+        finally:
+            if api is not None:
+                try:
+                    api.close()
+                except Exception:
+                    pass
+
     def _read_temperature(self, api) -> Optional[float]:
+        data = self._read_health(api)
+        return _first_float(data, "temperature", "cpu-temperature")
+
+    def _read_health(self, api) -> dict[str, object]:
         try:
             rows = list(api("/system/health/print"))
         except LibRouterosError:
-            return None
-        for row in rows:
-            value = _row_get(row, "temperature")
-            if value is None:
-                continue
-            temp = _to_float(value)
-            if temp is not None:
-                return temp
-        return None
+            return {}
+        return _health_map(rows)
 
-    def _read_resource(self, api):
+    def _read_resource_row(self, api) -> dict:
         rows = list(api("/system/resource/print"))
         if not rows:
+            return {}
+        return rows[0]
+
+    def _read_resource(self, api):
+        row = self._read_resource_row(api)
+        if not row:
             return None, None, None
-        row = rows[0]
         return (
             _to_float(_row_get(row, "cpu-load")),
             _to_int(_row_get(row, "total-memory")),

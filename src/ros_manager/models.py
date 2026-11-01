@@ -1,4 +1,4 @@
-"""Data models for MikroTik fleet automator."""
+"""Data models for ROS Manager."""
 
 from __future__ import annotations
 
@@ -32,6 +32,27 @@ class RouterHealth:
 
 
 @dataclass(frozen=True)
+class RouterDoctor:
+    """Extended diagnostic snapshot for a single router."""
+
+    name: str
+    host: str
+    status: str  # "ok" | "error"
+    error: Optional[str] = None
+    version: Optional[str] = None
+    uptime: Optional[str] = None
+    board_name: Optional[str] = None
+    architecture: Optional[str] = None
+    cpu_count: Optional[int] = None
+    disk_total_bytes: Optional[int] = None
+    disk_free_bytes: Optional[int] = None
+    temperature_c: Optional[float] = None
+    voltage: Optional[float] = None
+    fan_speed: Optional[float] = None
+    latency_ms: Optional[float] = None
+
+
+@dataclass(frozen=True)
 class RouterConfig:
     """Inventory entry for a single MikroTik router."""
 
@@ -44,6 +65,8 @@ class RouterConfig:
     api_ca_file: Optional[str] = None
     ssh_port: int = 22
     ssh_known_hosts: str = "~/.ssh/known_hosts"
+    groups: tuple[str, ...] = ()
+    retention_keep_last: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -55,9 +78,28 @@ class TelegramConfig:
 
 
 @dataclass(frozen=True)
+class WebhookConfig:
+    """Optional generic webhook notification settings."""
+
+    url_env: str
+    style: str = "generic"  # generic | slack | discord
+
+
+@dataclass(frozen=True)
+class NotificationsConfig:
+    """Notification channels; either or both may be configured."""
+
+    telegram: Optional[TelegramConfig] = None
+    webhook: Optional[WebhookConfig] = None
+
+
+@dataclass(frozen=True)
 class AppConfig:
     """Full application configuration loaded from YAML."""
 
     backup_dir: str
     routers: list[RouterConfig]
     telegram: Optional[TelegramConfig] = None
+    retention_keep_last: Optional[int] = None
+    notifications: Optional[NotificationsConfig] = None
+    state_file: str = ".rosm_state.json"

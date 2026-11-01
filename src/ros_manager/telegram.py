@@ -50,4 +50,11 @@ def send_summary(telegram: TelegramConfig, chat_id: str, text: str) -> None:
             )
             response.raise_for_status()
     except httpx.HTTPError as exc:
-        raise TelegramError(f"Telegram request failed: {exc}") from exc
+        raise TelegramError(_describe_http_error("Telegram", exc)) from exc
+
+
+def _describe_http_error(service: str, exc: httpx.HTTPError) -> str:
+    """Describe an HTTP failure without echoing the URL (which may hold a token)."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        return f"{service} request failed with HTTP {exc.response.status_code}"
+    return f"{service} request failed ({type(exc).__name__})"

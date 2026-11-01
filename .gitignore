@@ -159,6 +159,10 @@ ENV/
 env.bak/
 venv.bak/
 
+# ROS Manager runtime artifacts
+backups/
+.rosm_state.json
+
 # Spyder project settings
 .spyderproject
 .spyproject

@@ -3,30 +3,33 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "mikrotik-fleet-automator"
+name = "ros-manager"
 version = "0.1.0"
-description = "MikroTik fleet automation CLI: health check, backup, diff, and scheduler"
+description = "RouterOS fleet manager CLI: health checks, doctor, backups, restore, diff, notifications, and dashboard"
 requires-python = ">=3.11"
 authors = [
     { name = "farid" },
 ]
 dependencies = [
-    "typer>=0.12,<0.13",
+    "typer>=0.15,<1",
     "PyYAML>=6.0",
     "librouteros>=4.2,<5",
     "paramiko>=3.4,<4",
     "fastapi>=0.110,<1",
     "uvicorn>=0.30,<1",
+    "httpx>=0.27",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8",
-    "httpx>=0.27",
 ]
 
 [project.scripts]
-mfa = "mikrotik_fleet_automator.cli:app"
+rosm = "ros_manager.cli:app"
 
 [tool.hatch.build]
-packages = ["src/mikrotik_fleet_automator"]
+packages = ["src/ros_manager"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
