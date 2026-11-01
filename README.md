@@ -1,95 +1,130 @@
-# ros-manager
+<div align="center">
 
-`rosm` — a command-line manager for a fleet of MikroTik RouterOS devices.
-Health checks, configuration backups, diffs, scheduling, and an HTTP API —
-with secrets read only from environment variables.
+# ros-manager (`rosm`)
 
-> **Status:** All four phases are complete: rename/modularization, doctor +
-> retention + selection, verify/restore/history + notifications, and HTML
-> reports, the web dashboard, and multi-file inventories.
+**Fleet management for MikroTik RouterOS devices, from the command line.**
+
+Health checks · Configuration backups · Diffs · Safe restore · Scheduling · Web dashboard & HTTP API
+
+![Python](https://img.shields.io/badge/python-3.11%2B-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Platform](https://img.shields.io/badge/RouterOS-API--SSL-informational)
+
+</div>
+
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Features](#features)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Inventory Reference](#inventory-reference)
+  - [Full Example](#full-example)
+  - [Multi-file Inventories](#multi-file-inventories)
+  - [Selecting Routers](#selecting-routers)
+- [Command Reference](#command-reference)
+  - [Exit Codes](#exit-codes)
+  - [Restore and Verify](#restore-and-verify)
+  - [Notifications](#notifications)
+- [Output Formats](#output-formats)
+- [Web Dashboard and HTTP API](#web-dashboard-and-http-api)
+- [Security](#security)
+- [Development](#development)
+- [License](#license)
+
+## Overview
+
+`rosm` is a command-line manager for a fleet of MikroTik RouterOS devices. It
+monitors device health, takes timestamped configuration backups, compares them,
+and exposes everything through a scheduler, a web dashboard, and a JSON API.
+
+Credentials are never stored in configuration files: passwords, bot tokens, and
+webhook URLs are read exclusively from environment variables.
 
 ## Features
 
-- **Health checks** over the RouterOS API: CPU load, memory, temperature
-  (when the model exposes a sensor), and interface status.
-- **Doctor diagnostics**: RouterOS version, uptime, board, architecture, CPU
-  count, disk usage, voltage/fan sensors, and API round-trip latency.
-- **Router selection** with `--router` and `--group` on every fleet command.
-- **Configuration backups** over SSH (`/export terse`), written atomically
-  with UTC timestamps, plus optional **retention/pruning** of old backups.
-- **Unified diffs** between two `.rsc` backup files.
-- **Verify** local backups (readable, non-empty, RouterOS sections, freshness).
-- **Restore** with a safe dry-run by default; `--apply` uploads via SFTP and
-  runs `/import` without rebooting.
-- **History** of stored backups, including a diff of the two newest.
-- **Multi-channel notifications** (Telegram and/or webhook) with flap
-  detection: alerts are sent only when a router changes status.
-- **Scheduling** that runs immediately, then repeats on an interval.
-- **Self-contained HTML reports** for `check` and `run` (`--format html`).
-- **Web dashboard** with live status and per-router backup buttons.
-- **HTTP API** (`/api/status`, `/api/backups`, `/api/backups/{name}`).
-- **Multi-file inventories** via `include:` with globs and cycle detection.
-- **Structured output**: terminal text, JSON, CSV, or HTML.
+| Area | Capabilities |
+| --- | --- |
+| **Health checks** | CPU load, memory, temperature (when the model exposes a sensor), and interface status over the RouterOS API. |
+| **Doctor diagnostics** | RouterOS version, uptime, board, architecture, CPU count, disk usage, voltage/fan sensors, and API round-trip latency. |
+| **Backups** | Configuration export over SSH (`/export terse`), written atomically with UTC timestamps, with optional retention pruning. |
+| **Diff & history** | Unified diffs between `.rsc` files; list stored backups and diff the two newest. |
+| **Verify & restore** | Validate local backups (readable, non-empty, RouterOS sections, freshness). Restore defaults to a dry run; `--apply` uploads via SFTP and runs `/import` without rebooting. |
+| **Notifications** | Telegram and/or webhook (generic, Slack, Discord) with flap detection, so alerts fire only when a router changes status. |
+| **Scheduling** | Runs immediately, then repeats on a fixed interval. |
+| **Reporting** | Self-contained HTML reports, plus text, JSON, and CSV output. |
+| **Dashboard & API** | Live per-router status, backup buttons, and a JSON HTTP API. |
+| **Inventories** | Selection by router or group; multi-file inventories via `include:` with globs and cycle detection. |
 
 ## Requirements
 
-- Python 3.11+
-- RouterOS API-SSL enabled on each router (port 8729 by default)
-- SSH access to each router for configuration exports
+- Python **3.11+**
+- RouterOS **API-SSL** enabled on each router (port `8729` by default)
+- **SSH** access to each router for configuration exports
 - Known host keys in `~/.ssh/known_hosts` (unknown hosts are rejected)
 
-## Install
+## Installation
 
 ```bash
 python -m pip install -e '.[dev]'
 ```
 
-This installs the `rosm` command.
+This installs the `rosm` command. Verify the installation:
 
 ```bash
 rosm --help
 ```
 
-## Quick start
+## Quick Start
 
-1. Copy the example inventory and edit it:
+**1. Create your inventory** from the example:
 
-   ```bash
-   cp examples/inventory.example.yaml inventory.yaml
-   ```
+```bash
+cp examples/inventory.example.yaml inventory.yaml
+```
 
-2. Export the password for each router (never put it in the YAML):
+**2. Export each router's password** (never put it in the YAML):
 
-   ```bash
-   export R1_PASS='your-router-password'
-   ```
+```bash
+export R1_PASS='your-router-password'
+```
 
-3. Run a health check:
+**3. Run a health check:**
 
-   ```bash
-   rosm check --config inventory.yaml
-   ```
+```bash
+rosm check --config inventory.yaml
+```
 
-4. Inspect a router in detail:
+**4. Inspect a router in detail:**
 
-   ```bash
-   rosm doctor --config inventory.yaml --router core-1
-   ```
+```bash
+rosm doctor --config inventory.yaml --router core-1
+```
 
-5. Back up every router:
+**5. Back up every router:**
 
-   ```bash
-   rosm backup --config inventory.yaml
-   ```
+```bash
+rosm backup --config inventory.yaml
+```
 
-6. Compare two backups:
+**6. Compare two backups:**
 
-   ```bash
-   rosm diff backups/core-1_20260101T000000.000000Z.rsc \
-             backups/core-1_20260102T000000.000000Z.rsc
-   ```
+```bash
+rosm diff backups/core-1_20260101T000000.000000Z.rsc \
+          backups/core-1_20260102T000000.000000Z.rsc
+```
 
-## Inventory format
+## Inventory Reference
+
+The inventory is a YAML file describing your routers and global settings.
+Validation fails fast with a message that points at the offending router and
+field, and `rosm` never connects to a router if the inventory is invalid.
+Duplicate router names are rejected, including duplicates across included files.
+
+### Full Example
 
 ```yaml
 backup_dir: backups          # optional, defaults to "backups"
@@ -130,20 +165,15 @@ notifications:
 state_file: .rosm_state.json  # flap-detection state, default shown
 ```
 
-The legacy top-level `telegram:` block is still accepted; a
-`notifications.telegram` block takes precedence when both are present.
+> **Note:** The legacy top-level `telegram:` block is still accepted. A
+> `notifications.telegram` block takes precedence when both are present.
 
-Validation fails fast with a message that points at the offending router and
-field. The process never connects to a router if the inventory is invalid.
-Duplicate router names are rejected, including duplicates across included
-files.
+### Multi-file Inventories
 
-### Multi-file inventories
-
-`routers` may live in the root file, in files listed under `include:`, or in
-both. Includes accept a single path or a list, expand globs, resolve relative
-paths against the including file, and may themselves include more files.
-Missing files and include cycles are reported as config errors.
+`routers` may live in the root file, in files listed under `include:`, or both.
+Includes accept a single path or a list, expand globs, resolve relative paths
+against the including file, and may themselves include more files. Missing
+files and include cycles are reported as configuration errors.
 
 ```yaml
 # inventory.yaml
@@ -162,37 +192,35 @@ routers:
     password_env: EDGE1_PASS
 ```
 
-### Selecting routers
+### Selecting Routers
 
-`check`, `backup`, `run`, `doctor`, and `schedule` accept:
+`check`, `doctor`, `backup`, `run`, and `schedule` accept:
 
-- `--router r1,r2` — select by name.
-- `--group core,edge` — select by group; routers without `groups` belong to
-  the implicit `default` group.
+| Option | Description |
+| --- | --- |
+| `--router r1,r2` | Select routers by name. |
+| `--group core,edge` | Select routers by group. Routers without `groups` belong to the implicit `default` group. |
 
-When both are given, a router is selected if it matches **any** selector.
-Unknown names or groups exit with code 2 instead of silently selecting
-nothing.
+When both options are given, a router is selected if it matches **any**
+selector. Unknown names or groups exit with code `2` instead of silently
+selecting nothing.
 
-## Commands
+## Command Reference
 
 | Command | Description |
 | --- | --- |
 | `rosm check --config PATH [--format text\|json\|csv\|html] [--output PATH]` | Health check every router. |
 | `rosm doctor --config PATH [--format ...] [--output PATH]` | Version, board, disk, sensors, and API latency. |
 | `rosm backup --config PATH` | Export and store the configuration of every router. |
-| `rosm run --config PATH [--format text\|json\|csv\|html] [--output PATH] [--notify] [--notify-all]` | Check + back up, then summarize both. |
+| `rosm run --config PATH [--format text\|json\|csv\|html] [--output PATH] [--notify] [--notify-all]` | Check and back up, then summarize both. |
 | `rosm diff OLD NEW` | Unified diff between two `.rsc` files. |
 | `rosm verify FILE [--max-age-days N]` | Validate a local backup file. |
-| `rosm restore --config PATH --router NAME --file PATH [--apply]` | Dry-run (default) or upload + `/import`. |
+| `rosm restore --config PATH --router NAME --file PATH [--apply]` | Dry run (default) or upload and `/import`. |
 | `rosm history --config PATH --router NAME [--diff]` | List backups or diff the two newest. |
 | `rosm schedule --config PATH --interval-seconds N` | Run immediately, then repeat until stopped. |
 | `rosm serve --config PATH [--host H] [--port P]` | Start the API server and dashboard. |
 
-`check`, `doctor`, `backup`, `run`, and `schedule` also accept
-`--router NAME[,NAME...]` and `--group NAME[,NAME...]`.
-
-### Exit codes
+### Exit Codes
 
 | Code | Meaning |
 | --- | --- |
@@ -200,27 +228,32 @@ nothing.
 | `1` | At least one router check or backup failed (or `diff` found differences). |
 | `2` | Invalid configuration, invalid options, or unreadable input. |
 
-`restore` is a dry-run unless `--apply` is passed: it prints the target
-router, file size, a short preview, and a diff against the latest stored
-backup without connecting. `verify` exits `0` when the file is valid, `1`
-when its contents look wrong, and `2` when it cannot be read.
+### Restore and Verify
 
-`run --notify` sends alerts only when a router changes status (compared with
-`state_file`). Use `--notify-all` to force a full summary. `rosm schedule`
-uses the same flap-aware notifications on every cycle.
+`restore` is a **dry run** unless `--apply` is passed. The dry run prints the
+target router, file size, a short preview, and a diff against the latest stored
+backup, all without connecting to the device. With `--apply`, the file is
+uploaded via SFTP and imported; the router is never rebooted automatically.
 
-## Output formats
+`verify` exits `0` when the file is valid, `1` when its contents look wrong,
+and `2` when it cannot be read.
 
-- **text** — one line per router with status and metric summary, followed by an
-  error section when anything failed.
-- **json** — `{"generated_at": "...", "routers": [...]}` with per-router health,
-  interfaces, and (for `run`) backup results.
-- **csv** — one row per router with a fixed header. Missing sensor values are
-  written as empty fields.
-- **html** — a self-contained report (inline CSS, no external assets) for
-  `check` and `run`. Useful with `--output report.html` for sharing or archiving.
+### Notifications
 
-## Web dashboard and API
+`run --notify` sends alerts only when a router changes status, compared against
+`state_file`. Use `--notify-all` to force a full summary. `rosm schedule` uses
+the same flap-aware notifications on every cycle.
+
+## Output Formats
+
+| Format | Description |
+| --- | --- |
+| `text` | One line per router with status and metric summary, followed by an error section when anything failed. |
+| `json` | `{"generated_at": "...", "routers": [...]}` with per-router health, interfaces, and (for `run`) backup results. |
+| `csv` | One row per router with a fixed header. Missing sensor values are written as empty fields. |
+| `html` | Self-contained report (inline CSS, no external assets) for `check` and `run`. Ideal with `--output report.html` for sharing or archiving. |
+
+## Web Dashboard and HTTP API
 
 ```bash
 rosm serve --config inventory.yaml --host 127.0.0.1 --port 8000
@@ -234,29 +267,34 @@ rosm serve --config inventory.yaml --host 127.0.0.1 --port 8000
 | `POST /api/backups/{name}` | Back up one router (`404` for an unknown name). |
 | `POST /backups` | Legacy alias for `POST /api/backups`. |
 
-Responses are always HTTP `200` with per-router status when a router fails, so
-one broken device never hides the rest. A startup config error makes every
-endpoint return `500` with a safe message; if the inventory cannot be loaded at
-all, `rosm serve` exits early with code `2`. The dashboard polls
-`/api/status` every 30 seconds and is read-only apart from the backup buttons.
+**Behavior notes**
 
-## Security notes
+- Responses are always HTTP `200` with per-router status when a router fails,
+  so one broken device never hides the rest.
+- A startup configuration error makes every endpoint return `500` with a safe
+  message. If the inventory cannot be loaded at all, `rosm serve` exits early
+  with code `2`.
+- The dashboard polls `/api/status` every 30 seconds and is read-only apart
+  from the backup buttons.
 
-- Passwords, bot tokens, and webhook URLs are read from environment variables
-  only; they never appear in YAML, logs, or API responses.
-- API-SSL certificates are validated by default. Plain API is used only when
-  `api_tls: false` is set explicitly.
-- SSH host keys are verified against `ssh_known_hosts`; unknown or mismatched
-  hosts are rejected.
-- `restore` is a dry-run unless `--apply` is passed, and it never reboots the
-  router automatically.
-- The notification state file (default `.rosm_state.json`) stores only router
-  names and statuses, never secrets.
-- The dashboard and API never return passwords, tokens, or webhook URLs; error
-  messages are sanitized before they reach the client.
-- RouterOS `/export` omits sensitive values unless `show-sensitive` is used;
-  ROS Manager never requests it. A `.rsc` file is a configuration export, not
-  a full binary clone of the device.
+## Security
+
+- **Secrets stay out of files.** Passwords, bot tokens, and webhook URLs are
+  read from environment variables only and never appear in YAML, logs, or API
+  responses.
+- **TLS by default.** API-SSL certificates are validated; plain API is used
+  only when `api_tls: false` is set explicitly.
+- **Strict SSH host keys.** Keys are verified against `ssh_known_hosts`;
+  unknown or mismatched hosts are rejected.
+- **Safe restore.** `restore` is a dry run unless `--apply` is passed, and it
+  never reboots the router.
+- **Minimal state.** The notification state file stores only router names and
+  statuses.
+- **Sanitized errors.** The dashboard and API never return credentials, and
+  error messages are sanitized before reaching the client.
+- **Sensitive exports excluded.** RouterOS `/export` omits sensitive values
+  unless `show-sensitive` is used, and `rosm` never requests it. A `.rsc` file
+  is a configuration export, not a full binary clone of the device.
 
 ## Development
 
@@ -268,7 +306,7 @@ pytest
 The test suite uses mocks only: no real routers, network access, or Telegram
 tokens are required.
 
-### Package layout
+### Package Layout
 
 ```
 src/ros_manager/
@@ -289,4 +327,4 @@ src/ros_manager/
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Released under the MIT License. See [LICENSE](LICENSE) for details.
