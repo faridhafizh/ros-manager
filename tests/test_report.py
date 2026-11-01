@@ -7,6 +7,7 @@ from ros_manager.report import (
     render_dashboard,
     render_error_page,
     render_html_report,
+    render_login_page,
 )
 from ros_manager.service import BackupResult, RouterResult
 
@@ -117,3 +118,45 @@ def test_error_page_escapes_message():
     html = render_error_page("config error: <bad>")
     assert "&lt;bad&gt;" in html
     assert "<bad>" not in html
+
+
+def test_dashboard_has_cards_recommendations_and_legend():
+    config = AppConfig(
+        backup_dir="backups",
+        routers=[
+            RouterConfig(name="core-1", host="10.0.0.1", username="a", password_env="P"),
+        ],
+    )
+    html = render_dashboard(config)
+    assert 'class="card"' in html
+    assert 'data-state="unknown"' in html
+    assert 'id="attention"' in html
+    assert 'id="attention-list"' in html
+    assert "What do these numbers mean?" in html
+    assert "under 50% is light" in html
+    assert 'class="spark"' in html
+    assert "api/history" in html
+    assert "data-detail-router" in html
+    # Plain-language notes are rendered per metric by the dashboard script.
+    assert "cpu-note" in html and "mem-note" in html and "temp-note" in html
+    # No login control unless the dashboard is protected.
+    assert "Log out" not in html
+
+
+def test_dashboard_shows_logout_when_requested():
+    config = AppConfig(
+        backup_dir="backups",
+        routers=[
+            RouterConfig(name="core-1", host="10.0.0.1", username="a", password_env="P"),
+        ],
+    )
+    html = render_dashboard(config, show_logout=True)
+    assert "Log out" in html
+    assert 'action="/logout"' in html
+
+
+def test_login_page_escapes_error():
+    html = render_login_page("<bad>")
+    assert "&lt;bad&gt;" in html
+    assert "<bad>" not in html
+    assert 'name="password"' in html

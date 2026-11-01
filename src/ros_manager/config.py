@@ -325,6 +325,10 @@ def load_config(path: str | Path) -> AppConfig:
     if not isinstance(state_file, str) or not state_file.strip():
         raise ConfigError("state_file: must be a non-empty string")
 
+    metrics_db = top.get("metrics_db", "metrics.db")
+    if not isinstance(metrics_db, str) or not metrics_db.strip():
+        raise ConfigError("metrics_db: must be a non-empty string")
+
     return AppConfig(
         backup_dir=backup_dir,
         routers=routers,
@@ -332,4 +336,5 @@ def load_config(path: str | Path) -> AppConfig:
         retention_keep_last=retention_keep_last,
         notifications=notifications,
         state_file=state_file,
+        metrics_db=metrics_db,
     )

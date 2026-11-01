@@ -146,3 +146,59 @@ def test_api_config_invalid_dashboard_and_status(tmp_path):
     single = client.post("/api/backups/r1")
     assert single.status_code == 500
 
+
+def test_api_status_is_cached_briefly(write_yaml, minimal_yaml, monkeypatch):
+    monkeypatch.setenv("R1_PASS", "pw")
+    client = TestClient(create_app(write_yaml(minimal_yaml)))
+    with patch("ros_manager.api.run_inventory") as mock_run:
+        mock_run.return_value = [
+            RouterResult(
+                name="r1",
+                host="10.0.0.1",
+                health=RouterHealth(name="r1", host="10.0.0.1", status="ok"),
+            )
+        ]
+        first = client.get("/api/status")
+        second = client.get("/api/status")
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert mock_run.call_count == 1
+
+
+def test_api_history_records_status_points(write_yaml, minimal_yaml, monkeypatch):
+    monkeypatch.setenv("R1_PASS", "pw")
+    client = TestClient(create_app(write_yaml(minimal_yaml)))
+    with patch("ros_manager.api.run_inventory") as mock_run:
+        mock_run.return_value = [
+            RouterResult(
+                name="r1",
+                host="10.0.0.1",
+                health=RouterHealth(
+                    name="r1",
+                    host="10.0.0.1",
+                    status="ok",
+                    cpu_load_percent=12.0,
+                    memory_free_bytes=100,
+                    memory_total_bytes=200,
+                ),
+            )
+        ]
+        client.get("/api/status")
+
+    resp = client.get("/api/history?hours=24")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["hours"] == 24
+    points = body["series"]["r1"]
+    assert len(points) == 1
+    assert points[0]["cpu"] == 12.0
+    assert points[0]["mem_free"] == 100
+
+
+def test_api_history_clamps_hours(write_yaml, minimal_yaml, monkeypatch):
+    monkeypatch.setenv("R1_PASS", "pw")
+    client = TestClient(create_app(write_yaml(minimal_yaml)))
+    resp = client.get("/api/history?hours=999999")
+    assert resp.status_code == 200
+    assert resp.json()["hours"] == 24 * 30
+

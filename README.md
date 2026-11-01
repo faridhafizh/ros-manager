@@ -56,7 +56,7 @@ webhook URLs are read exclusively from environment variables.
 | **Notifications** | Telegram and/or webhook (generic, Slack, Discord) with flap detection, so alerts fire only when a router changes status. |
 | **Scheduling** | Runs immediately, then repeats on a fixed interval. |
 | **Reporting** | Self-contained HTML reports, plus text, JSON, and CSV output. |
-| **Dashboard & API** | Live per-router status, backup buttons, and a JSON HTTP API. |
+| **Dashboard & API** | Colour-coded router cards with plain-language metric notes, an action recommendations panel, 24-hour CPU/memory trends (SQLite), backup buttons, an optional team password, and a JSON HTTP API. |
 | **Inventories** | Selection by router or group; multi-file inventories via `include:` with globs and cycle detection. |
 
 ## Requirements
@@ -163,6 +163,7 @@ notifications:
     style: generic          # generic | slack | discord
 
 state_file: .rosm_state.json  # flap-detection state, default shown
+metrics_db: metrics.db        # dashboard trend history (SQLite), default shown
 ```
 
 > **Note:** The legacy top-level `telegram:` block is still accepted. A
@@ -259,10 +260,37 @@ the same flap-aware notifications on every cycle.
 rosm serve --config inventory.yaml --host 127.0.0.1 --port 8000
 ```
 
+The dashboard is built for the whole team: junior support staff get
+colour-coded cards and plain-language notes, while seniors can open the raw
+metrics table for every router.
+
+| Element | Description |
+| --- | --- |
+| Status cards | One card per router, coloured green (healthy), amber (warning), or red (error). Each card explains CPU, memory, temperature, and interface state in plain language. |
+| Needs attention | A recommendations panel that turns warnings into next steps, e.g. "move heavy firewall rules to another router" or "check the cable or the peer device". |
+| Trends | CPU (blue) and free memory (dashed purple) sparklines for the last 24 hours, stored in `metrics_db`. |
+| Advanced | A collapsible raw-metrics table with the full interface and error detail. |
+
+**Optional team password.** By default the dashboard is open, which is fine
+for `127.0.0.1` or an internal VLAN. To require a login, export a shared
+password before starting the server:
+
+```bash
+export ROSM_DASH_PASSWORD='your-team-password'
+rosm serve --config inventory.yaml
+```
+
+`rosm serve` prints a hint when the password is unset. The password is read
+only from the environment, sessions last 12 hours, and `POST /logout` ends
+one. This is deliberately a single shared password; role-based access is not
+part of the dashboard yet.
+
 | Endpoint | Description |
 | --- | --- |
-| `GET /` | Dashboard with live per-router status and backup buttons. |
-| `GET /api/status` | Run health checks and return `{"generated_at", "routers": [...]}`. |
+| `GET /` | Dashboard with status cards, recommendations, trends, and backup buttons. |
+| `GET /login`, `POST /login`, `POST /logout` | Password login when `ROSM_DASH_PASSWORD` is set. |
+| `GET /api/status` | Run health checks and return `{"generated_at", "routers": [...]}`. Results are cached for 10 seconds so several dashboard tabs do not duplicate checks. |
+| `GET /api/history?hours=24` | Return stored trend points per router (`hours` is clamped to 1–720). |
 | `POST /api/backups` | Back up every router and return the combined result. |
 | `POST /api/backups/{name}` | Back up one router (`404` for an unknown name). |
 | `POST /backups` | Legacy alias for `POST /api/backups`. |
@@ -275,7 +303,10 @@ rosm serve --config inventory.yaml --host 127.0.0.1 --port 8000
   message. If the inventory cannot be loaded at all, `rosm serve` exits early
   with code `2`.
 - The dashboard polls `/api/status` every 30 seconds and is read-only apart
-  from the backup buttons.
+  from the backup buttons, which ask for confirmation first.
+- Trend history is best-effort: it is written on every status check, pruned to
+  30 days when the server starts, and a locked or corrupt database never
+  breaks a health check.
 
 ## Security
 
@@ -289,7 +320,9 @@ rosm serve --config inventory.yaml --host 127.0.0.1 --port 8000
 - **Safe restore.** `restore` is a dry run unless `--apply` is passed, and it
   never reboots the router.
 - **Minimal state.** The notification state file stores only router names and
-  statuses.
+  statuses; the trend database stores only timestamps and numeric metrics.
+- **Optional dashboard login.** Set `ROSM_DASH_PASSWORD` to require a shared
+  team password; the password is never written to disk or returned by the API.
 - **Sanitized errors.** The dashboard and API never return credentials, and
   error messages are sanitized before reaching the client.
 - **Sensitive exports excluded.** RouterOS `/export` omits sensitive values
@@ -317,6 +350,8 @@ src/ros_manager/
 ├── storage.py     # atomic, timestamped backups + pruning + history
 ├── restore.py     # verify local backups + SSH restore
 ├── notify.py      # multi-channel notifications + flap state
+├── metrics.py     # SQLite trend history for the dashboard
+├── auth.py        # optional single-password dashboard login
 ├── scheduler.py   # interval scheduler
 ├── telegram.py    # Telegram transport
 ├── serialize.py   # shared JSON-serializable result builders

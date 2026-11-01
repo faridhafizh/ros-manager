@@ -5,6 +5,7 @@ from __future__ import annotations
 import typer
 
 from ..api import create_app
+from ..auth import ENV_PASSWORD, auth_enabled
 from .app import app
 from .common import NO_VALUE, load_app_config
 
@@ -17,6 +18,12 @@ def serve(
 ) -> None:
     """Run the FastAPI backup server with Uvicorn."""
     load_app_config(config)  # validate early with a friendly message
+    if not auth_enabled():
+        typer.secho(
+            "dashboard is open without a login; set "
+            f"{ENV_PASSWORD} to require one",
+            fg=typer.colors.YELLOW,
+        )
     import uvicorn
 
     app_api = create_app(config)

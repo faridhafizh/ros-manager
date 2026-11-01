@@ -103,3 +103,4 @@ class AppConfig:
     retention_keep_last: Optional[int] = None
     notifications: Optional[NotificationsConfig] = None
     state_file: str = ".rosm_state.json"
+    metrics_db: str = "metrics.db"

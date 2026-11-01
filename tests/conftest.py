@@ -48,11 +48,19 @@ def minimal_yaml() -> str:
 
 @pytest.fixture
 def write_yaml(tmp_path):
-    """Write a YAML file into tmp_path and return its path."""
+    """Write a YAML file into tmp_path and return its path.
+
+    A per-test ``metrics_db`` path is appended so the dashboard never writes
+    its SQLite history into the repository working directory.
+    """
 
     def _write(content: str, name: str = "config.yaml") -> Path:
         path = tmp_path / name
-        path.write_text(content, encoding="utf-8")
+        text = content
+        if "metrics_db:" not in text:
+            db_path = (tmp_path / "metrics.db").as_posix()
+            text = text.rstrip() + f"\nmetrics_db: {db_path}\n"
+        path.write_text(text, encoding="utf-8")
         return path
 
     return _write
